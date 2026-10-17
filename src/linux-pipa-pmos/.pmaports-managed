@@ -1,0 +1,16 @@
+config-xiaomi-pipa.aarch64
+0001-arm64-dts-qcom-sm8250-xiaomi-pipa-Add-device-tree-fo.patch
+0002-power-supply-Add-driver-for-Qualcomm-PMIC-fuel-gauge.patch
+0003-Input-Add-nt36523-touchscreen-driver.patch
+0004-drm-msm-dsi-change-sync-mode-to-sync-on-DSI0-rather-.patch
+0005-drm-msm-dsi-support-DSC-configurations-with-slice_pe.patch
+0006-drm-panel-Add-support-for-Novatek-NT36532-panel.patch
+0007-drivers-media-i2c-ov13b10-add-device-tree-support-an.patch
+0008-ASoC-qcom-sm8250-add-tertiary-tdm-support.patch
+0010-HACK-ASoC-codecs-aw88261-add-xiaomi-pipa-hacks.patch
+0011-FROMLIST-ASoC-qcom-qdsp6-q6afe-fix-clk-vote-response.patch
+0012-HACK-ASoC-qcom-qdsp6-q6afe-pretend-the-AFE-vote-didn.patch
+0013-Input-keyboard-add-Xiaomi-Nanosic-803-keyboard.patch
+0016-power-supply-add-nuvolta-rx1665-wireless-charger.patch
+0017-arm64-dts-qcom-pipa-restrict-charging-to-5-V.patch
+0018-power-supply-qcom_pm8150b-correct-float-voltage-programming.patch

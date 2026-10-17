@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+DEV=/dev/disk/by-partlabel/cust
+ESP=/boot/efi
+
+[[ -b $DEV ]] || { echo "pipa-mount-esp: $DEV not found" >&2; exit 1; }
+mkdir -p "$ESP"
+if mountpoint -q "$ESP"; then
+    [[ $(findmnt -no SOURCE "$ESP") == "$(readlink -f "$DEV")" ]] || {
+        echo "pipa-mount-esp: $ESP is mounted but is not $DEV" >&2; exit 1; }
+else
+    # quiet: FAT cannot hold unix owner/mode; don't fail pacman's chmod/chown
+    mount -t vfat -o rw,noatime,quiet,umask=0077 "$DEV" "$ESP"
+fi

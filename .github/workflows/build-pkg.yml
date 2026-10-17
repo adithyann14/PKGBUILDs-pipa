@@ -1,0 +1,202 @@
+# Self-sustaining single-repo builder for Xiaomi Pad 6 (pipa) packages on armtix.
+#
+#  * Package sources are read straight from src/<package>/ (the workflow never moves or copies
+#    anything into src/ - put your PKGBUILD folders there yourself).
+#  * "Run workflow" -> tick the packages you want (or "all"); only those are built.
+#  * Everything built is committed to repo/ (never the repo root): the finished *.pkg.tar.xz files
+#    and the two files pacman actually downloads, repo/pipa-pmos.db and repo/pipa-pmos.files
+#    (real copies, not symlinks). The *.db.tar.zst / *.files.tar.zst duplicates stay local
+#    (git-ignored). The local db is rebuilt from repo/*.pkg.tar.xz at the start of every run.
+#
+# GitHub allows max 25 inputs, so each tick is a package FAMILY: ticking e.g. "waydroid" also builds
+# waydroid-dinit / -openrc / -runit / -s6. Packages build in dependency order.
+name: build-pkg
+
+on:
+  workflow_dispatch:
+    inputs:
+      all: {description: "Build EVERYTHING (ignores the ticks below)", type: boolean, default: false}
+      bootmac: {description: "bootmac", type: boolean, default: false}
+      box64: {description: "box64", type: boolean, default: false}
+      device-xiaomi-pipa: {description: "device-xiaomi-pipa (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      firmware-xiaomi-pipa: {description: "firmware-xiaomi-pipa", type: boolean, default: false}
+      gamescope: {description: "gamescope", type: boolean, default: false}
+      hexagonrpcd: {description: "hexagonrpcd (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      iio-sensor-proxy-libssc: {description: "iio-sensor-proxy-libssc (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      libgbinder: {description: "libgbinder", type: boolean, default: false}
+      libglibutil: {description: "libglibutil", type: boolean, default: false}
+      libssc: {description: "libssc", type: boolean, default: false}
+      linux-pipa: {description: "linux-pipa (+ headers)", type: boolean, default: false}
+      linux-pipa-pmos: {description: "linux-pipa-pmos (+ linux-pipa-pmos-headers)", type: boolean, default: false}
+      linux-pipa-strawberry: {description: "linux-pipa-strawberry (+ headers)", type: boolean, default: false}
+      mangohud: {description: "mangohud", type: boolean, default: false}
+      mkbootimg-pipa: {description: "mkbootimg-pipa", type: boolean, default: false}
+      pipa-kernel-hooks: {description: "pipa-kernel-hooks", type: boolean, default: false}
+      python-gbinder: {description: "python-gbinder", type: boolean, default: false}
+      qbootctl: {description: "qbootctl (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      steam-beta-arm64: {description: "steam-beta-arm64", type: boolean, default: false}
+      swclock-offset: {description: "swclock-offset (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      waydroid: {description: "waydroid (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+      widevine: {description: "widevine", type: boolean, default: false}
+      wine-aarch64: {description: "wine-aarch64", type: boolean, default: false}
+      zramen: {description: "zramen (+ dinit/openrc/runit/s6 variants)", type: boolean, default: false}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-pkg
+  cancel-in-progress: false
+
+env:
+  REPO_NAME: pipa-pmos
+  REPO_DIR: repo                       # built packages + pacman db are committed here (repo/)
+  BUILD_ORDER: "libglibutil libgbinder python-gbinder libssc hexagonrpcd qbootctl swclock-offset mkbootimg-pipa bootmac iio-sensor-proxy-libssc firmware-xiaomi-pipa pipa-kernel-hooks linux-pipa-pmos linux-pipa linux-pipa-strawberry device-xiaomi-pipa waydroid zramen widevine wine-aarch64 steam-beta-arm64 box64 gamescope mangohud"
+  HAS_INITS: "device-xiaomi-pipa hexagonrpcd iio-sensor-proxy-libssc qbootctl swclock-offset waydroid zramen"
+  INIT_SYSTEMS: "dinit openrc runit s6"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm            # free ARM64 runner for public repos
+    timeout-minutes: 360                 # GitHub's hard maximum; tick fewer packages if you hit it
+    container:
+      image: menci/archlinuxarm:latest   # community Arch Linux ARM image
+    steps:
+      - name: Prepare build environment
+        run: |
+          # pacman 7 sandboxes downloads with Landlock, which Docker containers can't use
+          # ("Landlock ruleset could not be applied") - turn it off for every pacman/makepkg call
+          grep -q '^DisableSandbox' /etc/pacman.conf || sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+          pacman-key --init
+          pacman-key --populate archlinuxarm
+          pacman -Syu --noconfirm --needed base-devel git sudo jq
+          id builder >/dev/null 2>&1 || useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          sed -i 's/^#MAKEFLAGS=.*/MAKEFLAGS="-j$(nproc)"/' /etc/makepkg.conf
+          # always produce .pkg.tar.xz (no .zst/.gz/.sig leftovers)
+          sed -i "s/^#\?PKGEXT=.*/PKGEXT='.pkg.tar.xz'/" /etc/makepkg.conf
+
+      - uses: actions/checkout@v4
+
+      - name: Build selected packages and commit them to the repo root
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          [ -n "$INPUTS_JSON" ] && [ "$INPUTS_JSON" != null ] || INPUTS_JSON='{}'
+
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # The *.tar.zst db duplicates are not needed in the repo (pacman fetches pipa-pmos.db/.files).
+          TRACKED=(); for f in "$REPO_DIR/$REPO_NAME.db.tar.zst" "$REPO_DIR/$REPO_NAME.files.tar.zst"; do
+            git ls-files --error-unmatch "$f" >/dev/null 2>&1 && TRACKED+=("$f"); done
+          if ((${#TRACKED[@]})); then
+            git rm -q --cached "${TRACKED[@]}"
+            git commit -q -m "repo: stop tracking db .tar.zst duplicates" || true
+            git pull -q --rebase --autostash && git push -q || echo "::warning::could not push the untrack commit"
+          fi
+
+          # ---- which packages? -------------------------------------------------------------
+          want() { jq -e --arg k "$1" '.all == true or .[$k] == true' <<<"$INPUTS_JSON" >/dev/null; }
+          LIST=()
+          for fam in $BUILD_ORDER; do
+            if want "$fam"; then
+              # packages not (yet) in the repo are skipped instead of failing the run
+              if [ ! -f "src/$fam/PKGBUILD" ]; then
+                echo "::warning::$fam is not in the repo yet - skipping"; continue
+              fi
+              LIST+=("$fam")
+              if [[ " $HAS_INITS " == *" $fam "* ]]; then
+                for i in $INIT_SYSTEMS; do
+                  if [ -f "src/$fam-$i/PKGBUILD" ]; then LIST+=("$fam-$i")
+                  else echo "::warning::$fam-$i is not in the repo yet - skipping"; fi
+                done
+              fi
+            fi
+          done
+          if ((${#LIST[@]} == 0)); then echo "Nothing ticked - nothing to build."; exit 0; fi
+          echo "Build list: ${LIST[*]}"
+
+          # ---- local repo so later packages can depend on earlier ones ----------------------
+          add_repo() {
+            grep -q "^\[$REPO_NAME\]" /etc/pacman.conf && return 0
+            sed -i "/^\[core\]/i [$REPO_NAME]\nSigLevel = Optional TrustAll\nServer = file://$GITHUB_WORKSPACE/$REPO_DIR\n" /etc/pacman.conf
+          }
+          # rebuild the db from the *.pkg.tar.xz already in the repo (older .zst packages are not indexed)
+          mkdir -p "$REPO_DIR"
+          existing=("$REPO_DIR"/*.pkg.tar.xz)
+          if ((${#existing[@]})); then
+            repo-add -q "$REPO_DIR/$REPO_NAME.db.tar.zst" "${existing[@]}" || echo "::warning::could not index existing packages"
+            # real files (not symlinks) so git never sees a type change
+            cp -f --remove-destination "$REPO_DIR/$REPO_NAME.db.tar.zst"    "$REPO_DIR/$REPO_NAME.db"
+            cp -f --remove-destination "$REPO_DIR/$REPO_NAME.files.tar.zst" "$REPO_DIR/$REPO_NAME.files"
+            add_repo; pacman -Sy --noconfirm
+          fi
+
+          needs_nodeps() {   # only runtime deps (some live in Artix-only repos, e.g. dinit/openrc/runit/s6-base)
+            case "$1" in
+              pipa-kernel-hooks|device-xiaomi-pipa|*-dinit|*-openrc|*-runit|*-s6) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          build_one() {
+            local p=$1 out=/tmp/out/$1 flags=(-f --noconfirm)
+            [ -f "src/$p/PKGBUILD" ] || { echo "::error::src/$p/PKGBUILD missing"; return 1; }
+            rm -rf "/tmp/build/$p" "$out"; mkdir -p /tmp/build "$out"
+            cp -a "src/$p" "/tmp/build/$p"          # build outside the git tree
+            chown -R builder: "/tmp/build/$p" "$out"
+            if needs_nodeps "$p"; then flags+=(-d); else flags+=(-s); fi
+            (cd "/tmp/build/$p" && sudo -u builder env PKGDEST="$out" makepkg "${flags[@]}")
+          }
+
+          publish_one() {
+            local p=$1 files f names=()
+            files=(/tmp/out/$p/*.pkg.tar.xz)
+            ((${#files[@]})) || { echo "::error::$p produced no package"; return 1; }
+            for f in "${files[@]}"; do
+              if (( $(stat -c%s "$f") >= 104857600 )); then
+                echo "::error::$(basename "$f") is over GitHub's 100 MB file limit and cannot be committed"; return 1
+              fi
+              names+=("$REPO_DIR/$(basename "$f")")   # repo-add needs the real path (packages live in repo/)
+            done
+            cp -f "${files[@]}" "$REPO_DIR/" || return 1
+            repo-add -q -R "$REPO_DIR/$REPO_NAME.db.tar.zst" "${names[@]}" || return 1
+            # GitHub raw serves symlinks as text, so ship real copies of pipa-pmos.db / .files
+            cp -f --remove-destination "$REPO_DIR/$REPO_NAME.db.tar.zst"    "$REPO_DIR/$REPO_NAME.db"    || return 1
+            cp -f --remove-destination "$REPO_DIR/$REPO_NAME.files.tar.zst" "$REPO_DIR/$REPO_NAME.files" || return 1
+            rm -f "$REPO_DIR/$REPO_NAME".db.tar.zst.old "$REPO_DIR/$REPO_NAME".files.tar.zst.old
+            add_repo; pacman -Sy --noconfirm >/dev/null || return 1
+            git add -f -A -- "$REPO_DIR"/'*.pkg.tar.xz' "$REPO_DIR/$REPO_NAME.db" "$REPO_DIR/$REPO_NAME.files" || return 1
+            git commit -q -m "build: $p" || true
+            local n; for n in 1 2 3; do
+              git pull -q --rebase --autostash && git push -q && return 0
+              sleep 5
+            done
+            echo "::error::push failed for $p"; return 1
+          }
+
+          FAILED=(); OK=()
+          for p in "${LIST[@]}"; do
+            echo "::group::$p"
+            if build_one "$p" && publish_one "$p"; then OK+=("$p"); else FAILED+=("$p"); fi
+            echo "::endgroup::"
+          done
+
+          {
+            echo "### Built: ${OK[*]:-none}"
+            echo "### Failed: ${FAILED[*]:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ((${#FAILED[@]} == 0))
+
+      - name: Keep built packages as a safety net
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: /tmp/out/**/*.pkg.tar.xz
+          retention-days: 7
+          if-no-files-found: ignore

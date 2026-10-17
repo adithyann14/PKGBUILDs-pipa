@@ -1,0 +1,47 @@
+# Maintainer: LinusDierheimer <Linus@Dierheimer.de>
+# Modded: flasher removed. The kernel boots as an EFI stub from the 'cust' ESP
+# (see linux-pipa-pmos), so there is no Android boot.img to build or dd.
+# Kept: the mkinitcpio drop-in and the 'pipafw' initcpio hook that put the
+# panel/touch/GPU/Wi-Fi/BT firmware and modules into the initramfs.
+
+pkgname=pipa-kernel-hooks
+pkgver=1.0
+pkgrel=6
+pkgdesc="mkinitcpio config and firmware hook for Xiaomi Pad 6 [Pipa] (no boot.img flasher)"
+arch=("any")
+url=""
+license=("GPL")
+
+depends=(
+    "coreutils"
+    "mkinitcpio"
+    "qbootctl"
+    "linux"
+    "linux-firmware-pipa-adreno"
+    "linux-firmware-pipa-adsp"
+    "linux-firmware-pipa-cdsp"
+    "linux-firmware-pipa-awinic"
+    "linux-firmware-pipa-nuvolta"
+    "linux-firmware-pipa-novatek"
+    "linux-firmware-pipa-hexagonfs"
+    "linux-firmware-pipa-slpi"
+    "linux-firmware-pipa-venus"
+)
+source=(
+    "pipafw-initcpio-hook"
+    "mkinitcpio.conf"
+)
+sha512sums=(
+    "783006ceeb140b4b8a1f51a6d5b107eec7e3f869b234b9db8452b54ed0a570c5de3e2960926fd4dfb2c71370955b40b77fead264f11f34cbf5fb67473e5ad784"
+    "01ba6d2367dd72c8f1f8f38f45faa3c13758afc738e4dbcabacadabbd7f245d048f8128b96a02ae10023b6b7799f65787a45f81e3deb5f415120f03c3f856994"
+)
+
+backup=('etc/mkinitcpio.conf.d/pipa.conf')
+
+package() {
+    # Install initcpio hook that adds firmware to the ramdisk
+    install -Dm644 "pipafw-initcpio-hook" "$pkgdir/usr/lib/initcpio/install/pipafw"
+
+    # mkinitcpio drop-in: pipa modules + pipafw hook
+    install -Dm644 "mkinitcpio.conf" "$pkgdir/etc/mkinitcpio.conf.d/pipa.conf"
+}

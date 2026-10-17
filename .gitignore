@@ -1,48 +1,18 @@
-# Compiled package files
-*.pkg.tar.zst
-*.pkg.tar.xz
-*.pkg.tar.gz
-
-# Source tarballs
-*.tar.*
-*.zip
-*.rar
-*.7z
-*.gz
-*.bz2
-*.xz
-*.lz
-*.Z
-
-# Build directories
-pkg/
-src/
-
-# Logs
+# makepkg leftovers inside package folders (CI builds in /tmp; finished packages are
+# committed to the repo ROOT on purpose, so *.pkg.tar.* is NOT ignored there)
+/*/src/
+/*/pkg/
+/src/*/src/
+/src/*/pkg/
+/*/*.pkg.tar.*
+/src/*/*.pkg.tar.*
 *.log
-
-# Temporary files
-*.part
 *.swp
-*.bak
 *~
-.*.swp
-*.tmp
 
-# GPG signatures
+# repo/ ships only *.pkg.tar.xz + pipa-pmos.db + pipa-pmos.files; the .tar.zst duplicates stay local
+/repo/pipa-pmos.db.tar*
+/repo/pipa-pmos.files.tar*
+*.old
 *.sig
-*.asc
-
-# AUR helper artifacts
-*.tar
-*.deb
-*.rpm
-
-# VCS directories (if accidentally copied into repo)
-*.git/
-*.svn/
-*.hg/
-
-# Clean chroot artifacts (optional)
-*.log.*
-*.build
+!/repo/*.pkg.tar.xz
